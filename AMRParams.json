@@ -1,7 +1,7 @@
 { 
-	"COMPortName": "COM6",
+	"COMPortName": "/home/mateusz/serials/a0",
 	"BaudrateInStart": 300,
-	"BaudrateInRuntime": 9600,
+	"BaudrateInRuntime": 4800,
 	"Parity" : "EVEN",
 	"DataBit": 7,
 	"StopBit" : 1,
