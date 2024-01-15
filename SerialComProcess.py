@@ -16,6 +16,7 @@ from AMRProcess import amrSerialListCheckProcess
 from AMRProcess import createStartMessageResponse
 from AMRProcess import checkAMRQueryType
 from AMRProcess import createReadoutMessage
+from AMRProcess import IEC_MAGIC_BYTES, AMR_STATE
 from SystemFunc import waitUntilEnterPressed
 
 #Global Class Objects
@@ -31,7 +32,7 @@ def serialInit():
         try:
                 serialPort = serial.Serial(AMRParams.comPortName, 
                                           AMRParams.baudrateInStart, 
-                                          timeout = 0,
+                                          timeout = None,
                                           bytesize = AMRParams.dataBit,
                                           parity = AMRParams.parity,
                                           stopbits = AMRParams.stopBit)
@@ -51,29 +52,47 @@ def encodeStr(inputStr):
 
 #Periodic Read Event Threads
 def readFromSerialPort ():
+    state = None
     while True:
         
-        readBuffer = serialPort.readline()
+        readBuffer = serialPort.read_until(expected=b'\r\n')
+        print(f'1: {readBuffer}')
         
         if decodeStr(readBuffer) != '':
-                #print(decodeStr(readBuffer))
+                state_pre = state
                 state = checkAMRQueryType(decodeStr(readBuffer))
+                if state == AMR_STATE.REPEAT:
+                        state = state_pre
 
-                if state == 0:
+                if state == AMR_STATE.START_PROCESS:
                         opSuccess = amrSerialListCheckProcess(decodeStr(readBuffer))
                         if opSuccess:
                                 writeToSerialPort(createStartMessageResponse(AMRParams.requestedSerialNo))
                                 time.sleep(0.01)
-                elif state == 1:
-                        if AMRParams.deviceNumber != INVALID_DEVICE_NUMBER:
-                                if AMRParams.enable[AMRParams.deviceNumber]:
-                                        serialPort.baudrate = AMRParams.baudrateInRuntime
-                                        time.sleep(0.500)
-                                        writeToSerialPort(createReadoutMessage(AMRParams.brand[AMRParams.deviceNumber]))
-                                        time.sleep(0.1)
-                                        serialPort.baudrate = AMRParams.baudrateInStart
-
-                                AMRParams.deviceNumber = INVALID_DEVICE_NUMBER
+                elif state == AMR_STATE.READOUT_PROCESS:
+                        assert(readBuffer[0] == IEC_MAGIC_BYTES.ACK or chr(readBuffer[0]) == '.')
+                        
+                        if AMRParams.deviceNumber != INVALID_DEVICE_NUMBER and AMRParams.enable[AMRParams.deviceNumber]:
+                                brand = AMRParams.brand[AMRParams.deviceNumber]
+                        else:
+                                print("WARNING: invalid device number")
+                                brand = None
+                        
+                        change_baudrate = True
+                        
+                        if change_baudrate:
+                                serialPort.baudrate = AMRParams.baudrateInRuntime
+                                print(f"setting baud {serialPort.baudrate} (assuming HHD respects meter's preference)")
+                                
+                        time.sleep(02.500)
+                        writeToSerialPort(createReadoutMessage(brand))
+                        print("INFO: sent readout")
+                        time.sleep(0.1)
+                        
+                        if change_baudrate:
+                                serialPort.baudrate = AMRParams.baudrateInStart
+                                
+                        AMRParams.deviceNumber = INVALID_DEVICE_NUMBER
                 else:
                         print("ERROR_COMM: Unexpected State is occured in runtime!")
 
@@ -102,7 +121,15 @@ def writeToSerialPort(sendStr):
 
         strLen = len(sendStr)
         if strLen <= partialSendSize:
-                serialPort.write(encodeStr(sendStr))
+                for line in sendStr.splitlines():
+                        payload = encodeStr(line) 
+                        if len(payload) == 1 and ord(payload) in (_ for _ in IEC_MAGIC_BYTES):
+                                print('send byte: ', end='')
+                        else:
+                                payload += b'\r\n'
+                                print(f'send line: ', end='')
+                        print(payload)
+                        serialPort.write(payload)
         else:
                 myList = list(split_chunks(sendStr, partialSendSize))
                 for i in range (0, len(myList)):

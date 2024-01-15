@@ -12,15 +12,26 @@ import io
 import threading
 import time
 import os
+import enum
 
 #Constant Definitions
 SERIAL_NO_LENGTH = 8
 DEBUG_AMR_ENABLE = True
-READ_OUT_COMMAND = "050"
+READ_OUT_COMMANDS = ["0"+str(_)+"0" for _ in range(6)]
 
-ERROR_PROCESS = -1
-START_PROCESS = 0
-READOUT_PROCESS = 1
+@enum.unique
+class IEC_MAGIC_BYTES(enum.IntEnum):
+    STX = 0x02 # start of frame
+    ETX = 0x03 # end of frame
+    ACK = 0x06 # acknoledge
+    NCK = 32 # no acknoledge, repeat
+    BCC_LGZ = 0x08 # BCC for LGZ example payload
+
+class AMR_STATE:
+    ERROR_PROCESS = -1
+    START_PROCESS = 0
+    READOUT_PROCESS = 1
+    REPEAT = 2
 
 #Class Object Definitions
 class AMRParams:
@@ -35,6 +46,38 @@ class AMRParams:
     parity = ""
     stopBit = 1
     dataBit = 8
+    
+    def baud_to_iec(baud):
+        if baud == 300:
+            return 0
+        elif baud == 600:
+            return 1
+        elif baud == 1200:
+            return 2
+        elif baud == 2400:
+            return 3
+        elif baud == 4800:
+            return 4
+        elif baud == 9600:
+            return 5
+        else:
+            return None
+        
+    def iec_to_baud(iec):
+        if iec == 0:
+            return 300
+        elif iec == 1:
+            return 600
+        elif iec == 2:
+            return 1200
+        elif iec == 3:
+            return 2400
+        elif iec == 4:
+            return 4800
+        elif iec == 5:
+            return 9600
+        else:
+            return None
 
 #Checks the validty of serial list defined in AMRParams.json by user
 def checkUserSerialList():
@@ -70,8 +113,10 @@ def getSerialNo(inputStr):
     
     if str("MSY") in inputStr:
         requestedSerialNo = getSubString(inputStr, "MSY", "!")
-    elif str("/?") in inputStr:
+    elif str("/?") in inputStr and str("!") in inputStr:
         requestedSerialNo = getSubString(inputStr, "/?", "!")
+        if len(requestedSerialNo) == 0:
+            print("WARNING_ARM: device address not specified")
     else:
         requestedSerialNo = "NOT_SUPPORTED"
 
@@ -81,7 +126,6 @@ def getSerialNo(inputStr):
 #If serial number could not exist, user would be informed by console
 def checkSeriaNoFromSerialList(requestedSerialNo):
     checkSerialNo = False
-
     for i in range(0, len(AMRParams.serialNo)):
         if requestedSerialNo == AMRParams.serialNo[i]:
             if DEBUG_AMR_ENABLE:
@@ -109,14 +153,14 @@ def createStartMessageResponse (reqSerialNo):
         startMessage = "/LUN5<1>LUN" + str(AMRParams.serialNo[deviceNumber])
     elif AMRParams.brand[deviceNumber] == "KOHLER":
         startMessage =  "/AEL5<1>AEL.TF.21"
+        startMessage =  f"/LGZ{AMRParams.baud_to_iec(AMRParams.baudrateInRuntime)}ZMF100AC.M29"
     elif AMRParams.brand[deviceNumber] == "MAKEL":
         startMessage = "/MSY5<1>C500.KMY.2556"
     elif AMRParams.brand[deviceNumber] == "VIKO":
         startMessage = "/VIK5<1>VEMM" + str(AMRParams.serialNo[deviceNumber])
     else:
         startMessage = ""
-    
-    print("startMessage:" + str(startMessage))
+    startMessage+='\r\n'
     return startMessage
 
 #Inits AMR process
@@ -128,25 +172,34 @@ def amrInit():
 #Checks requested serial no for starting to first handshake
 def amrSerialListCheckProcess (readBuffer):
     opSuccess = False
-    AMRParams.requestedSerialNo = getSerialNo(readBuffer)
-    opSuccess = checkSeriaNoFromSerialList(AMRParams.requestedSerialNo)
+    print(f'>>{AMRParams.requestedSerialNo}<<')
+    if len(AMRParams.requestedSerialNo) == 0:
+        AMRParams.requestedSerialNo = '' # AMRParams.serialNo[0]
+        opSuccess = True
+    else:
+        AMRParams.requestedSerialNo = getSerialNo(readBuffer)
+        opSuccess = checkSeriaNoFromSerialList(AMRParams.requestedSerialNo)
     
     return opSuccess
 
 #Checks master query type
 def checkAMRQueryType(readBuffer):
-    if READ_OUT_COMMAND in readBuffer:
+    if any([read_out in readBuffer for read_out in READ_OUT_COMMANDS]):
         if DEBUG_AMR_ENABLE:
             print("DEBUG_AMR: ReadOut State...")
-        return READOUT_PROCESS
-    elif "/?" in readBuffer:
+        return AMR_STATE.READOUT_PROCESS
+    elif "/?" in readBuffer and "!" in readBuffer:
         if DEBUG_AMR_ENABLE:
             print("DEBUG_AMR: Start Process State...")
-        return START_PROCESS
+        return AMR_STATE.START_PROCESS
+    elif chr(IEC_MAGIC_BYTES.NCK) == readBuffer[0:1]:
+        if DEBUG_AMR_ENABLE:
+            print("DEBUG_AMR: Repeat (NCK) State...")
+        return AMR_STATE.REPEAT
     else:
         if DEBUG_AMR_ENABLE:
             print("DEBUG_AMR: Error Process State...")
-        return ERROR_PROCESS
+        return AMR_STATE.ERROR_PROCESS
 
 #Creates Readout Response for Luna Meter
 #This format is real data comes from one of test meters.
@@ -1021,6 +1074,34 @@ def createKohlerReadoutResponse():
 <3>}'''
     return readoutStr
 
+def createNoBrandReadoutResponse():
+    readoutStr = '''
+F.F(00)
+1.8.0(000052.337*kWh)
+2.8.0(000376.432*kWh)
+3.8.0(000145.875*kvarh)
+4.8.0(000010.724*kvarh)
+15.8.0(000428.769*kWh)
+32.7(231*V)
+52.7(231*V)
+72.7(231*V)
+31.7(00.000*A)
+51.7(00.000*A)
+71.7(00.000*A)
+13.7(-.--)
+14.7(50.0*Hz)
+C.1.0(40799390)
+0.0(40799390 )
+C.1.1( )
+0.2.0(M29)
+16.7(000.00*kW)
+131.7(000.00*kVAr)
+C.5.0(6402)
+C.7.0(0064)
+!
+'''
+    return chr(IEC_MAGIC_BYTES.STX) + readoutStr + chr(IEC_MAGIC_BYTES.ETX) + '\n' + chr(IEC_MAGIC_BYTES.BCC_LGZ)
+
 #Conditions the readout message according to meter brand names
 def createReadoutMessage(meterBrand):
     if meterBrand == "LUNA":
@@ -1031,4 +1112,6 @@ def createReadoutMessage(meterBrand):
         return(createVikoReadoutResponse())
     elif meterBrand == "KOHLER":
         return(createKohlerReadoutResponse())
-
+    else:
+        # no brand
+        return(createNoBrandReadoutResponse())
