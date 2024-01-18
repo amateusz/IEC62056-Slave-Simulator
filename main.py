@@ -14,14 +14,38 @@ from SerialComProcess import serialInit
 from SerialComProcess import readFromSerialPortThreadInit
 from AMRProcess       import amrInit
 
-#Parses AMRParams.json file
-parseAMRParamsFromJSONFile()
+def main():
+    #Parses AMRParams.json file
+    parseAMRParamsFromJSONFile()
 
-#Inits all serial comm. layer
-serialInit()
+    #Inits all serial comm. layer
+    serialInit()
 
-#Inits AMR Serial List Check Operation
-amrInit()
+    #Inits AMR Serial List Check Operation
+    amrInit()
 
-#Calls periodically read event to handle master requests
-readFromSerialPortThreadInit()
+    #Calls periodically read event to handle master requests
+    readFromSerialPortThreadInit()
+
+process = None
+
+if __name__ == '__main__':
+    main()
+else:
+    import multiprocessing
+
+    def start():
+        global process
+        if not process:
+            process = multiprocessing.Process(target=main)
+
+        if not process.is_alive():
+            process.start()
+
+    def stop():
+        global process
+        process.terminate()
+        process.join()
+        process.close() # free-up resources
+        process = None
+
