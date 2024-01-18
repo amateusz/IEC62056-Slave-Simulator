@@ -58,14 +58,11 @@ def parseSerialParity(parity):
 def parseAMRParamsFromJSONFile():
     from AMRProcess import AMRParams
     
-    if False:
-        print("USER_MESSAGE: Please Select AMR Config File(AMRParams.json)")
-        Tk().withdraw()
-        jsonFileName = askopenfilename() # Shows an "Open" dialog box and return the path to the selected file
-    else:
-        import pathlib
-        jsonFileName = str(pathlib.Path('AMRParams.json'))   
-        print(f'opening file "{jsonFileName}" as for config')
+    import pathlib
+    own_path = pathlib.Path(__file__).absolute()
+    residing_conf_file_path = own_path.parents[0] / 'AMRParams.json'
+    jsonFileName = str(residing_conf_file_path)   
+    print(f'opening file "{jsonFileName}" as for config')
 
     with open(jsonFileName) as jsonData:
         amrParamsJSON = json.load(jsonData)
