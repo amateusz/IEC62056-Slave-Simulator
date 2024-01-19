@@ -56,7 +56,6 @@ def readFromSerialPort ():
     while True:
         
         readBuffer = serialPort.read_until(expected=b'\r\n')
-        print(f'1: {readBuffer}')
         
         if decodeStr(readBuffer) != '':
                 state_pre = state
@@ -80,14 +79,23 @@ def readFromSerialPort ():
                         
                         change_baudrate = True
                         
+                        serialPort.flush()
+
                         if change_baudrate:
                                 serialPort.baudrate = AMRParams.baudrateInRuntime
-                                print(f"setting baud {serialPort.baudrate} (assuming HHD respects meter's preference)")
+                                print(f"INFO: setting baud {serialPort.baudrate} (assuming HHD respects meter's preference)")
                                 
-                        time.sleep(02.500)
+                        time.sleep(1.100) # legal delay (<1.5s)
+                        print("INFO: sent readout start!")
                         writeToSerialPort(createReadoutMessage(brand))
-                        print("INFO: sent readout")
-                        time.sleep(0.1)
+                        # this is so dumb, but pyserial's write is actually not blocking!!!
+                        # this block leaves too early, while the actuall write is still pending (esp on baud 600)
+                        # and changes the baud back to 300, while still sending. SO DUMB of pyserial!
+                        # implement manual delay, don't trust .out_waiting, .write_timeout, .flush()
+                        bytes_per_sec = serialPort.baudrate/7
+                        time_to_write = len(createReadoutMessage(brand)) / bytes_per_sec * 1.5 # it takes longer than theory
+                        time.sleep(time_to_write)
+                        print("INFO: sent readout done")
                         
                         if change_baudrate:
                                 serialPort.baudrate = AMRParams.baudrateInStart
@@ -124,11 +132,15 @@ def writeToSerialPort(sendStr):
                 for line in sendStr.splitlines():
                         payload = encodeStr(line) 
                         if len(payload) == 1 and ord(payload) in (_ for _ in IEC_MAGIC_BYTES):
-                                print('send byte: ', end='')
+                                # print('send byte: ', end='')
+                                pass
+                        elif len(payload) == 2 and payload[0] == IEC_MAGIC_BYTES.ETX:
+                                # ETX + BCC sequence
+                                pass
                         else:
                                 payload += b'\r\n'
-                                print(f'send line: ', end='')
-                        print(payload)
+                                # print(f'send line: ', end='')
+                        # print(payload)
                         serialPort.write(payload)
         else:
                 myList = list(split_chunks(sendStr, partialSendSize))
