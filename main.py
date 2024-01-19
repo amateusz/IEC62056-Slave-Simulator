@@ -32,6 +32,7 @@ process = None
 if __name__ == '__main__':
     main()
 else:
+    from AMRProcess import createNoBrandReadoutResponse as DefaultReadoutPayload
     import multiprocessing
 
     def start():
@@ -48,4 +49,3 @@ else:
         process.join()
         process.close() # free-up resources
         process = None
-

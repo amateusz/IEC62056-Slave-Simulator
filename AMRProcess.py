@@ -172,7 +172,6 @@ def amrInit():
 #Checks requested serial no for starting to first handshake
 def amrSerialListCheckProcess (readBuffer):
     opSuccess = False
-    print(f'>>{AMRParams.requestedSerialNo}<<')
     if len(AMRParams.requestedSerialNo) == 0:
         AMRParams.requestedSerialNo = '' # AMRParams.serialNo[0]
         opSuccess = True
@@ -1075,8 +1074,7 @@ def createKohlerReadoutResponse():
     return readoutStr
 
 def createNoBrandReadoutResponse():
-    readoutStr = '''
-F.F(00)
+    readoutStr = '''F.F(00)
 1.8.0(000052.337*kWh)
 2.8.0(000376.432*kWh)
 3.8.0(000145.875*kvarh)
@@ -1100,7 +1098,7 @@ C.5.0(6402)
 C.7.0(0064)
 !
 '''
-    return chr(IEC_MAGIC_BYTES.STX) + readoutStr + chr(IEC_MAGIC_BYTES.ETX) + '\n' + chr(IEC_MAGIC_BYTES.BCC_LGZ)
+    return chr(IEC_MAGIC_BYTES.STX) + readoutStr + chr(IEC_MAGIC_BYTES.ETX) + chr(IEC_MAGIC_BYTES.BCC_LGZ)
 
 #Conditions the readout message according to meter brand names
 def createReadoutMessage(meterBrand):
