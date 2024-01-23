@@ -93,7 +93,7 @@ def readFromSerialPort ():
                         # and changes the baud back to 300, while still sending. SO DUMB of pyserial!
                         # implement manual delay, don't trust .out_waiting, .write_timeout, .flush()
                         bytes_per_sec = serialPort.baudrate/7
-                        time_to_write = len(createReadoutMessage(brand)) / bytes_per_sec * 1.5 # it takes longer than theory
+                        time_to_write = len(createReadoutMessage(brand)) / bytes_per_sec * 2.1 # it takes longer than theory
                         time.sleep(time_to_write)
                         print("INFO: sent readout done")
                         
